@@ -1,9 +1,9 @@
 ;;; unicode-disp.el --- display-table fallbacks for some unicode chars
 
-;; Copyright 2008, 2009 Kevin Ryde
+;; Copyright 2008, 2009, 2010 Kevin Ryde
 ;;
 ;; Author: Kevin Ryde <user42@zip.com.au>
-;; Version: 1
+;; Version: 2
 ;; Keywords: i18n
 ;; URL: http://user42.tuxfamily.org/unicode-disp/index.html
 ;;
@@ -48,17 +48,57 @@
 ;;; History:
 
 ;; Version 1 - the first version
+;; Version 2 - act on window and buffer display tables too
 
 ;;; Code:
 
-(defun unicode-disp-char-displayable-p (char)
-  "Return non-nil if CHAR can be shown on the current display."
+;;-----------------------------------------------------------------------------
+;; emacs22 new stuff
+
+;; unicode-disp--char-displayable-p
+(eval-and-compile
   (if (eval-when-compile (fboundp 'char-displayable-p))
-      ;; emacs22
-      (char-displayable-p char)
-    ;; emacs21, assume everything displayable on X or on a utf8 tty
-    (or window-system
-        (eq 'utf-8 (terminal-coding-system)))))
+      ;; emacs22 up
+      (defalias 'unicode-disp--char-displayable-p 'char-displayable-p)
+    ;; emacs21
+    (defun unicode-disp--char-displayable-p (window)
+      "Return non-nil if CHAR can be shown on the current display.
+It's assumed  everything is displayable on X or on a utf8 tty"
+      (or window-system
+          (eq 'utf-8 (terminal-coding-system))))))
+
+;; unicode-disp--make-glyph-code
+(eval-and-compile
+  (if (eval-when-compile (fboundp 'make-glyph-code))
+      ;; emacs22 up
+      (defalias 'unicode-disp--make-glyph-code 'make-glyph-code)
+    ;; emacs21
+    (defun unicode-disp--make-glyph-code (c &optional face)
+      "Return a glyph code for CHAR displayed with FACE."
+      (logior c (* 524288
+                   (if face (face-id face) 0))))))
+
+;;-----------------------------------------------------------------------------
+;; emacs23 new stuff
+
+;; unicode-disp--with-selected-frame
+(eval-and-compile
+  (if (eval-when-compile (fboundp 'with-selected-frame))
+      ;; emacs23 up, and xemacs21
+      (defalias 'unicode-disp--with-selected-frame 'with-selected-frame)
+    ;; emacs21,emacs22
+    ;; the NO-ENTER parameter in emacs21 gone in emacs22
+    (defmacro unicode-disp--with-selected-frame (frame &rest body)
+      "Evaluate BODY with FRAME as the `selected-frame'."
+      `(let ((unicode-disp--with-selected-frame--old (selected-frame)))
+         (unwind-protect
+             (progn
+               (select-frame ,frame)
+               ,@body)
+           (select-frame unicode-disp--with-selected-frame--old))))))
+
+
+;;-----------------------------------------------------------------------------
 
 (defun unicode-disp-attr-displayable-p (attr &optional display)
   "Return non-nil if ATTR can be shown on DISPLAY.
@@ -73,67 +113,133 @@ DISPLAY defaults to the current display."
 (defun unicode-disp-overline-face (&optional display)
   "Return an overline face for DISPLAY, or nil.
 If the display can't show an overline face the return is nil.
-DISPLAY defaults to the current frame.  "
+DISPLAY defaults to the current frame."
   (when (unicode-disp-attr-displayable-p :overline display)
     (unless (facep 'unicode-disp-overline)
       (make-face 'unicode-disp-overline)
       (set-face-attribute 'unicode-disp-overline nil :overline t))
     'unicode-disp-overline))
 
+(defun unicode-disp-escape-face (&optional display)
+  "Return 'escape-glyph if that face exists, otherwise 'default."
+  (if (facep 'escape-glyph) ;; not in emacs21,xemacs21
+      'escape-glyph
+    'default))
+
+(defun unicode-disp-table (table)
+  "Apply unicode display to TABLE.
+TABLE is a display table, or nil for an as-yet uninitialized
+`standard-display-table'.  `selected-frame' is used for whether
+characters are displayable."
+
+  (dolist (elem '((#x2010 "-")  ;; HYPHEN
+                  (#x2018 "`")  ;; LEFT SINGLE QUOTATION MARK
+                  (#x2019 "'")  ;; RIGHT SINGLE QUOTATION MARK
+                  (#x201C "\"") ;; LEFT DOUBLE QUOTATION MARK
+                  (#x201D "\"") ;; RIGHT DOUBLE QUOTATION MARK
+                  (#x2192 "->"  ;; RIGHTWARDS ARROW
+                          unicode-disp-escape-face)
+                  (#x2212 "-")  ;; MINUS SIGN
+                  (#x2502 "|")  ;; BOX DRAWINGS LIGHT VERTICAL
+                  (#x203E " "   ;; OVERLINE as face
+                          unicode-disp-overline-face)))
+
+    (let* ((char (decode-char 'ucs (nth 0 elem)))
+           (str  (nth 1 elem))
+           (face (nth 2 elem)))
+      (when (and
+             ;; table doesn't already have an entry
+             (or (not table)
+                 (not (aref table char)))
+             ;; char not already displayable
+             (not (unicode-disp--char-displayable-p char))
+             ;; face func returns a face
+             (or (not face)
+                 (setq face (funcall face))))
+
+        ;; nil means `standard-display-table', to be initialized by
+        ;; loading disp-table.el
+        (unless table
+          (require 'disp-table)
+          (setq table standard-display-table))
+
+        (aset table char
+              (vconcat (mapcar (lambda (c)
+                                 (unicode-disp--make-glyph-code c face))
+                               str)))))))
+
+;; `window-display-table' noticed through `set-window-display-table'
+;;
+(defadvice set-window-display-table (after unicode-disp activate)
+  "Apply `unicode-disp' character fallbacks to `window-display-table'."
+  (and table
+       (fboundp 'unicode-disp-table) ;; in case `unload-feature'
+       (unicode-disp--with-selected-frame (window-frame window)
+         (unicode-disp-table table))))
+
+(defun unicode-disp-unload-function ()
+  (require 'advice) ;; in case unloaded before us
+  (when (ad-find-advice 'set-window-display-table 'after 'unicode-disp)
+    (ad-remove-advice   'set-window-display-table 'after 'unicode-disp)
+    (ad-activate        'set-window-display-table))
+  nil) ;; and do normal unload-feature actions too
+
+;; `buffer-display-table' noticed under `window-configuration-change-hook'
+;; this means only displayed buffers are considered, which may help if
+;; there's lots of buffers, but basically there's no good way to notice a
+;; plain setq to buffer-display-table anyway
+;;
+(defun unicode-disp-winconf ()
+  "Apply `unicode-disp' character fallbacks to `buffer-display-table'.
+This function is used in `window-configuration-change-hook' to
+check any buffer display tables in the displayed buffers."
+  (when (fboundp 'unicode-disp-table) ;; in case `unload-feature'
+    (dolist (window (window-list nil t))
+      (when (window-live-p window) ;; dead windows don't have buffers
+        (with-current-buffer (window-buffer window)
+          (if buffer-display-table
+              (unicode-disp-table buffer-display-table)))))))
+
 ;;;###autoload
 (defun unicode-disp ()
   "Setup some display table fallbacks for unicode chars.
-`standard-display-table' is modified to show a few unicode chars
-as ascii near-equivalents if they're not otherwise displayable.
-For example if like U+2010 HYPHEN isn't displayable then it's
-setup as a plain ascii \"-\".
+The display tables are modified to show a few unicode chars as
+ascii near-equivalents if not otherwise displayable.  For example
+if like U+2010 HYPHEN isn't displayable then it's set to plain
+ascii \"-\".
 
 This only affects the screen display, the characters in the
-buffers remain unchanged."
+buffers are unchanged.
+
+`standard-display-table' and current and future
+`window-display-table' and `buffer-display-table' are acted on.
+A new setting for a `buffer-display-table' is only noticed on the
+next window configuration change, which is not right but usually
+close enough.
+
+----
+The unicode-disp.el home page is
+URL `http://user42.tuxfamily.org/unicode-disp/index.html'"
 
   (interactive)
   (when (eval-when-compile (boundp 'standard-display-table)) ;; not in xemacs
-    (let (table)
+    ;; if different frames have different char-displayable-p then might want
+    ;; to mangle the standard table for each to make a lowest denominator,
+    ;; but for now just do it once (can be repeated by M-x unicode-disp)
+    (unicode-disp-table standard-display-table)
 
-      (dolist (elem '((#x2010 "-")  ;; HYPHEN
-                      (#x2018 "`")  ;; LEFT SINGLE QUOTATION MARK
-                      (#x2019 "'")  ;; RIGHT SINGLE QUOTATION MARK
-                      (#x201C "\"") ;; LEFT DOUBLE QUOTATION MARK
-                      (#x201D "\"") ;; RIGHT DOUBLE QUOTATION MARK
-                      (#x2192 "->") ;; RIGHTWARDS ARROW
-                      (#x2212 "-")  ;; MINUS SIGN
-                      (#x2502 "|")  ;; BOX DRAWINGS LIGHT VERTICAL
-                      (#x203E " "   ;; OVERLINE as face
-                              unicode-disp-overline-face)))
+    (dolist (frame (frame-list))
+      (unicode-disp--with-selected-frame frame
+        ;; initial `window-display-table's
+        (dolist (window (window-list frame t))
+          (let ((table (window-display-table window)))
+            (if table
+                (unicode-disp-table table))))
+        ;; initial `buffer-display-table's
+        (unicode-disp-winconf)))
 
-        (let* ((char (decode-char 'ucs (nth 0 elem)))
-               (str  (nth 1 elem))
-               (face (nth 2 elem)))
-
-          ;; only if char not already displayable, and if any face func
-          ;; specified returns a face
-          (when (and (not (unicode-disp-char-displayable-p char))
-                     (or (not face)
-                         (setq face (funcall face))))
-
-            ;; standard-display-table starts life nil, initialize it
-            ;; like disp-table.el does, when needed
-            (unless table
-              (setq table (or standard-display-table
-                              (make-display-table))))
-
-            (aset table char
-                  (vconcat (mapcar
-                            (lambda (c)
-                              (if (eval-when-compile
-                                    (fboundp 'make-glyph-code))
-                                  (make-glyph-code c face) ;; emacs22
-                                ;; emacs21
-                                (logior c (* 524288
-                                             (if face (face-id face) 0)))))
-                            str))))))
-
-      (setq standard-display-table table))))
+    ;; future `buffer-display-table's
+    (add-hook 'window-configuration-change-hook 'unicode-disp-winconf)))
 
 ;;;###autoload
 (custom-add-option 'term-setup-hook 'unicode-disp)
