@@ -3,7 +3,7 @@
 ;; Copyright 2008, 2009, 2010 Kevin Ryde
 ;;
 ;; Author: Kevin Ryde <user42@zip.com.au>
-;; Version: 2
+;; Version: 3
 ;; Keywords: i18n
 ;; URL: http://user42.tuxfamily.org/unicode-disp/index.html
 ;;
@@ -49,8 +49,13 @@
 
 ;; Version 1 - the first version
 ;; Version 2 - act on window and buffer display tables too
+;; Version 3 - express dependency on 'advice rather than maybe reloading it
 
 ;;; Code:
+
+;; for `ad-find-advice' macro when running uncompiled
+;; (don't unload 'advice before our -unload-function)
+(require 'advice)
 
 ;;-----------------------------------------------------------------------------
 ;; emacs22 new stuff
@@ -178,7 +183,6 @@ characters are displayable."
          (unicode-disp-table table))))
 
 (defun unicode-disp-unload-function ()
-  (require 'advice) ;; in case unloaded before us
   (when (ad-find-advice 'set-window-display-table 'after 'unicode-disp)
     (ad-remove-advice   'set-window-display-table 'after 'unicode-disp)
     (ad-activate        'set-window-display-table))
