@@ -1,9 +1,9 @@
 ;;; unicode-disp.el --- display-table fallbacks for some unicode chars
 
-;; Copyright 2008, 2009, 2010 Kevin Ryde
+;; Copyright 2008, 2009, 2010, 2011 Kevin Ryde
 ;;
 ;; Author: Kevin Ryde <user42@zip.com.au>
-;; Version: 3
+;; Version: 4
 ;; Keywords: i18n
 ;; URL: http://user42.tuxfamily.org/unicode-disp/index.html
 ;;
@@ -28,6 +28,20 @@
 ;; personal selection of the worst bits of unicode encountered, just with
 ;; the aim of making them displayable on an ascii or latin1 tty.  If nothing
 ;; else it might give you ideas for display table mangling of your own.
+;;
+;; See latin1-disp.el for similar display table setups for otherwise
+;; undisplayable characters from the iso-8859-N charsets, and some cyrillic.
+;;
+;; Quite how much you want to transform and how prominent you want it is a
+;; matter of personal preference.  Displaying a char as a sequence like "->"
+;; can make text lines come out too long, or tables etc not align, sometimes
+;; very badly.  A face like `escape-glyph' can make it clear you're looking
+;; at non-ascii, except it becomes very distracting if the screen is
+;; littered with it.
+;;
+;; The variant hyphens and quotes currently treated by `unicode-disp' are
+;; considered fairly pointless and may as well display as plain ascii "-" as
+;; necessary, with no special highlighting.
 
 ;;; Emacsen:
 
@@ -50,12 +64,14 @@
 ;; Version 1 - the first version
 ;; Version 2 - act on window and buffer display tables too
 ;; Version 3 - express dependency on 'advice rather than maybe reloading it
+;; Version 4 - term-setup-hook isn't customizable
 
 ;;; Code:
 
 ;; for `ad-find-advice' macro when running uncompiled
 ;; (don't unload 'advice before our -unload-function)
 (require 'advice)
+
 
 ;;-----------------------------------------------------------------------------
 ;; emacs22 new stuff
@@ -68,7 +84,8 @@
     ;; emacs21
     (defun unicode-disp--char-displayable-p (window)
       "Return non-nil if CHAR can be shown on the current display.
-It's assumed  everything is displayable on X or on a utf8 tty"
+It's assumed everything is displayable on X and on a utf8 tty
+\(if `terminal-coding-system' is utf-8)."
       (or window-system
           (eq 'utf-8 (terminal-coding-system))))))
 
@@ -95,6 +112,7 @@ It's assumed  everything is displayable on X or on a utf8 tty"
     ;; the NO-ENTER parameter in emacs21 gone in emacs22
     (defmacro unicode-disp--with-selected-frame (frame &rest body)
       "Evaluate BODY with FRAME as the `selected-frame'."
+      ;; (declare (debug t))  ;; emacs22,xemacs21, or 'cl
       `(let ((unicode-disp--with-selected-frame--old (selected-frame)))
          (unwind-protect
              (progn
@@ -108,61 +126,72 @@ It's assumed  everything is displayable on X or on a utf8 tty"
 (defun unicode-disp-attr-displayable-p (attr &optional display)
   "Return non-nil if ATTR can be shown on DISPLAY.
 ATTR is a keyword like :overline.
-DISPLAY defaults to the current display."
-  (if (eval-when-compile (fboundp 'display-supports-face-attributes-p))
-      ;; emacs22
-      (display-supports-face-attributes-p (list attr t) display)
-    ;; emacs21
-    (assq attr face-attribute-name-alist)))
+DISPLAY is a display name, a frame, or nil for the selected frame."
+  (cond ((eval-when-compile (fboundp 'display-supports-face-attributes-p))
+         ;; emacs22 up
+         (display-supports-face-attributes-p (list attr t) display))
+        ((eval-when-compile (boundp 'face-attribute-name-alist))
+         ;; emacs21
+         (assq attr face-attribute-name-alist))
+        ((progn
+           (eval-and-compile (require 'cus-face))
+           (eval-when-compile (boundp 'custom-face-attributes)))
+         ;; xemacs21, emacs20
+         ;; suppose this is all possible attributes, or close enough
+         (assq attr custom-face-attributes))))
 
 (defun unicode-disp-overline-face (&optional display)
   "Return an overline face for DISPLAY, or nil.
 If the display can't show an overline face the return is nil.
-DISPLAY defaults to the current frame."
+DISPLAY is a display name, a frame, or nil for the selected frame."
   (when (unicode-disp-attr-displayable-p :overline display)
     (unless (facep 'unicode-disp-overline)
       (make-face 'unicode-disp-overline)
       (set-face-attribute 'unicode-disp-overline nil :overline t))
     'unicode-disp-overline))
 
-(defun unicode-disp-escape-face (&optional display)
-  "Return 'escape-glyph if that face exists, otherwise 'default."
+(defun unicode-disp-escape-face ()
+  "Return 'escape-glyph if that face exists, otherwise 'default.
+DISPLAY is a display name, a frame, or nil for the selected frame."
   (if (facep 'escape-glyph) ;; not in emacs21,xemacs21
       'escape-glyph
     'default))
 
+(defconst unicode-disp-default-character-list
+  '((#x2010 "-")  ;; HYPHEN
+    ;; (#x2014 "-")  ;; EM DASH   maybe ...
+    (#x2018 "`")  ;; LEFT SINGLE QUOTATION MARK
+    (#x2019 "'")  ;; RIGHT SINGLE QUOTATION MARK
+    (#x201C "\"") ;; LEFT DOUBLE QUOTATION MARK
+    (#x201D "\"") ;; RIGHT DOUBLE QUOTATION MARK
+    (#x2192 "->"  ;; RIGHTWARDS ARROW
+            unicode-disp-escape-face)
+    (#x2212 "-")  ;; MINUS SIGN
+    (#x2502 "|")  ;; BOX DRAWINGS LIGHT VERTICAL
+    (#x203E " "   ;; OVERLINE as face
+            unicode-disp-overline-face)))
+
 (defun unicode-disp-table (table)
   "Apply unicode display to TABLE.
-TABLE is a display table, or nil for an as-yet uninitialized
-`standard-display-table'.  `selected-frame' is used for whether
-characters are displayable."
+TABLE is a display table, or nil to act on as-yet uninitialized
+`standard-display-table'.  The `selected-frame' is used to check
+which characters are displayable."
 
-  (dolist (elem '((#x2010 "-")  ;; HYPHEN
-                  (#x2018 "`")  ;; LEFT SINGLE QUOTATION MARK
-                  (#x2019 "'")  ;; RIGHT SINGLE QUOTATION MARK
-                  (#x201C "\"") ;; LEFT DOUBLE QUOTATION MARK
-                  (#x201D "\"") ;; RIGHT DOUBLE QUOTATION MARK
-                  (#x2192 "->"  ;; RIGHTWARDS ARROW
-                          unicode-disp-escape-face)
-                  (#x2212 "-")  ;; MINUS SIGN
-                  (#x2502 "|")  ;; BOX DRAWINGS LIGHT VERTICAL
-                  (#x203E " "   ;; OVERLINE as face
-                          unicode-disp-overline-face)))
-
+  (dolist (elem unicode-disp-default-character-list)
     (let* ((char (decode-char 'ucs (nth 0 elem)))
            (str  (nth 1 elem))
            (face (nth 2 elem)))
       (when (and
              ;; table doesn't already have an entry
-             (or (not table)
-                 (not (aref table char)))
+             (not (and table
+                       (aref table char)))
              ;; char not already displayable
              (not (unicode-disp--char-displayable-p char))
              ;; face func returns a face
              (or (not face)
                  (setq face (funcall face))))
 
-        ;; nil means `standard-display-table', to be initialized by
+        ;; TABLE nil means `standard-display-table', to be initialized by
         ;; loading disp-table.el
         (unless table
           (require 'disp-table)
@@ -177,12 +206,18 @@ characters are displayable."
 ;;
 (defadvice set-window-display-table (after unicode-disp activate)
   "Apply `unicode-disp' character fallbacks to `window-display-table'."
-  (and table
-       (fboundp 'unicode-disp-table) ;; in case `unload-feature'
-       (unicode-disp--with-selected-frame (window-frame window)
-         (unicode-disp-table table))))
+  ;; in emacs21 `unload-feature' doesn't call `unicode-disp-unload-function'
+  ;; so this advice is left behind, allow for that by checking
+  ;; 'unicode-disp-table' still exists
+  (when (fboundp 'unicode-disp-table)
+    (let ((table (ad-get-arg 1))) ;; args WINDOW TABLE
+      (and table
+           (unicode-disp--with-selected-frame (window-frame window)
+                                              (unicode-disp-table table))))))
 
 (defun unicode-disp-unload-function ()
+  "Remove advice on `set-window-display-table'.
+This is called by `unload-feature'."
   (when (ad-find-advice 'set-window-display-table 'after 'unicode-disp)
     (ad-remove-advice   'set-window-display-table 'after 'unicode-disp)
     (ad-activate        'set-window-display-table))
@@ -197,6 +232,9 @@ characters are displayable."
   "Apply `unicode-disp' character fallbacks to `buffer-display-table'.
 This function is used in `window-configuration-change-hook' to
 check any buffer display tables in the displayed buffers."
+  ;; in emacs21 `unload-feature' doesn't remove `unicode-disp-winconf' from
+  ;; `window-configuration-change-hook', allow for that by checking
+  ;; 'unicode-disp-table' still exists
   (when (fboundp 'unicode-disp-table) ;; in case `unload-feature'
     (dolist (window (window-list nil t))
       (when (window-live-p window) ;; dead windows don't have buffers
@@ -209,8 +247,8 @@ check any buffer display tables in the displayed buffers."
   "Setup some display table fallbacks for unicode chars.
 The display tables are modified to show a few unicode chars as
 ascii near-equivalents if not otherwise displayable.  For example
-if like U+2010 HYPHEN isn't displayable then it's set to plain
-ascii \"-\".
+if U+2010 HYPHEN isn't displayable then it's set to plain ascii
+\"-\".
 
 This only affects the screen display, the characters in the
 buffers are unchanged.
@@ -218,8 +256,8 @@ buffers are unchanged.
 `standard-display-table' and current and future
 `window-display-table' and `buffer-display-table' are acted on.
 A new setting for a `buffer-display-table' is only noticed on the
-next window configuration change, which is not right but usually
-close enough.
+next window configuration change, which is not really right but
+usually close enough.
 
 ----
 The unicode-disp.el home page is
@@ -245,8 +283,14 @@ URL `http://user42.tuxfamily.org/unicode-disp/index.html'"
     ;; future `buffer-display-table's
     (add-hook 'window-configuration-change-hook 'unicode-disp-winconf)))
 
-;;;###autoload
-(custom-add-option 'term-setup-hook 'unicode-disp)
+;; Might have put `unicode-disp' as a customize option on `term-setup-hook'
+;; or similar.  But as of Emacs 23 `term-setup-hook' is just a defvar not
+;; defcustom.
+;;
+;; ;;;###autoload
+;; (custom-add-option 'term-setup-hook 'unicode-disp)
+
+;; LocalWords: latin overline fallbacks unicode tty disp ascii undisplayable charsets cyrillic iso
 
 (provide 'unicode-disp)
 
