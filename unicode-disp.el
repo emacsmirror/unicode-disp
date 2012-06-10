@@ -1,10 +1,10 @@
 ;;; unicode-disp.el --- display-table fallbacks for some unicode chars
 
-;; Copyright 2008, 2009, 2010, 2011 Kevin Ryde
+;; Copyright 2008, 2009, 2010, 2011, 2012 Kevin Ryde
 ;;
 ;; Author: Kevin Ryde <user42@zip.com.au>
-;; Version: 4
-;; Keywords: i18n
+;; Version: 7
+;; Keywords: i18n, unicode, display
 ;; URL: http://user42.tuxfamily.org/unicode-disp/index.html
 ;;
 ;; unicode-disp.el is free software; you can redistribute it and/or modify
@@ -23,25 +23,26 @@
 
 ;;; Commentary:
 
-;; M-x unicode-disp changes the display table to show selected unicode chars
-;; as ascii equivalents or near equivalents.  The chars affected are a
-;; personal selection of the worst bits of unicode encountered, just with
-;; the aim of making them displayable on an ascii or latin1 tty.  If nothing
-;; else it might give you ideas for display table mangling of your own.
+;; M-x unicode-disp changes the display table to show some unicode chars as
+;; ASCII equivalents or near equivalents.
+;;
+;; The characters handled are a personal selection of the worst bits of
+;; unicode encountered, just with the aim of making them displayable on an
+;; ASCII or Latin-1 tty.  If nothing else it might give you ideas for
+;; display table mangling of your own.
 ;;
 ;; See latin1-disp.el for similar display table setups for otherwise
 ;; undisplayable characters from the iso-8859-N charsets, and some cyrillic.
 ;;
-;; Quite how much you want to transform and how prominent you want it is a
-;; matter of personal preference.  Displaying a char as a sequence like "->"
-;; can make text lines come out too long, or tables etc not align, sometimes
-;; very badly.  A face like `escape-glyph' can make it clear you're looking
-;; at non-ascii, except it becomes very distracting if the screen is
-;; littered with it.
+;; Quite to transform and how prominent it should be is a matter of personal
+;; preference.  Displaying a char as a sequence like "->" can make text
+;; lines come out too long, or tables etc not align, sometimes very badly.
+;; A face like `escape-glyph' can make it clear you're looking at non-ascii,
+;; except it becomes distracting if the screen is littered with it.
 ;;
-;; The variant hyphens and quotes currently treated by `unicode-disp' are
-;; considered fairly pointless and may as well display as plain ascii "-" as
-;; necessary, with no special highlighting.
+;; The variant hyphens and quotes currently treated by `unicode-disp' are on
+;; the whole fairly pointless and might as well display as plain ascii "-"
+;; etc as necessary, with no special highlighting.
 
 ;;; Emacsen:
 
@@ -65,6 +66,9 @@
 ;; Version 2 - act on window and buffer display tables too
 ;; Version 3 - express dependency on 'advice rather than maybe reloading it
 ;; Version 4 - term-setup-hook isn't customizable
+;; Version 5 - some more chars
+;; Version 6 - mathematical <> bracket chars
+;; Version 7 - en dash
 
 ;;; Code:
 
@@ -82,6 +86,7 @@
       ;; emacs22 up
       (defalias 'unicode-disp--char-displayable-p 'char-displayable-p)
     ;; emacs21
+    (put  'unicode-disp--char-displayable-p 'side-effect-free t)
     (defun unicode-disp--char-displayable-p (window)
       "Return non-nil if CHAR can be shown on the current display.
 It's assumed everything is displayable on X and on a utf8 tty
@@ -95,6 +100,7 @@ It's assumed everything is displayable on X and on a utf8 tty
       ;; emacs22 up
       (defalias 'unicode-disp--make-glyph-code 'make-glyph-code)
     ;; emacs21
+    (put  'unicode-disp--make-glyph-code 'side-effect-free t)
     (defun unicode-disp--make-glyph-code (c &optional face)
       "Return a glyph code for CHAR displayed with FACE."
       (logior c (* 524288
@@ -150,6 +156,7 @@ DISPLAY is a display name, a frame, or nil for the selected frame."
       (set-face-attribute 'unicode-disp-overline nil :overline t))
     'unicode-disp-overline))
 
+;; is `facep' side-effect-free ?
 (defun unicode-disp-escape-face ()
   "Return 'escape-glyph if that face exists, otherwise 'default.
 DISPLAY is a display name, a frame, or nil for the selected frame."
@@ -158,16 +165,41 @@ DISPLAY is a display name, a frame, or nil for the selected frame."
     'default))
 
 (defconst unicode-disp-default-character-list
-  '((#x2010 "-")  ;; HYPHEN
-    ;; (#x2014 "-")  ;; EM DASH   maybe ...
+  '(
+    (#x2010 "-")  ;; HYPHEN
+    (#x2212 "-")  ;; MINUS SIGN
+    (#x2013 "-")  ;; EN DASH
+    (#x2014 "-")  ;; EM DASH
+
+    (#x2500 "-"   ;; BOX DRAWINGS LIGHT HORIZONTAL
+            unicode-disp-escape-face)
+    (#x2502 "|")  ;; BOX DRAWINGS LIGHT VERTICAL
+    ;;
+    (#x250C "+"   ;; BOX DRAWINGS LIGHT DOWN AND RIGHT
+            unicode-disp-escape-face)
+    (#x2514 "+"   ;; BOX DRAWINGS LIGHT UP AND RIGHT
+            unicode-disp-escape-face)
+
     (#x2018 "`")  ;; LEFT SINGLE QUOTATION MARK
     (#x2019 "'")  ;; RIGHT SINGLE QUOTATION MARK
     (#x201C "\"") ;; LEFT DOUBLE QUOTATION MARK
     (#x201D "\"") ;; RIGHT DOUBLE QUOTATION MARK
+
+    (#x2190 "<-"  ;; LEFTWARDS ARROW
+            unicode-disp-escape-face)
     (#x2192 "->"  ;; RIGHTWARDS ARROW
             unicode-disp-escape-face)
-    (#x2212 "-")  ;; MINUS SIGN
-    (#x2502 "|")  ;; BOX DRAWINGS LIGHT VERTICAL
+    (#x221E "inf" ;; INFINITY
+            unicode-disp-escape-face)
+
+    (#x25C0 "<"   ;; BLACK LEFT-POINTING TRIANGLE
+            unicode-disp-escape-face)
+    (#x25B6 ">"   ;; BLACK RIGHT-POINTING TRIANGLE
+            unicode-disp-escape-face)
+
+    (#x27E8 "<")  ;; MATHEMATICAL LEFT ANGLE BRACKET
+    (#x27E9 ">")  ;; MATHEMATICAL RIGHT ANGLE BRACKET
+
     (#x203E " "   ;; OVERLINE as face
             unicode-disp-overline-face)))
 
