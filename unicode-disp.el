@@ -1,9 +1,9 @@
 ;;; unicode-disp.el --- display-table fallbacks for some unicode chars
 
-;; Copyright 2008, 2009, 2010, 2011, 2012 Kevin Ryde
+;; Copyright 2008, 2009, 2010, 2011, 2012, 2013 Kevin Ryde
 ;;
 ;; Author: Kevin Ryde <user42@zip.com.au>
-;; Version: 7
+;; Version: 10
 ;; Keywords: i18n, unicode, display
 ;; URL: http://user42.tuxfamily.org/unicode-disp/index.html
 ;;
@@ -23,26 +23,27 @@
 
 ;;; Commentary:
 
-;; M-x unicode-disp changes the display table to show some unicode chars as
-;; ASCII equivalents or near equivalents.
+;; M-x unicode-disp changes the display table to show otherwise
+;; undisplayable unicode chars as ASCII equivalents or near equivalents.
 ;;
 ;; The characters handled are a personal selection of the worst bits of
-;; unicode encountered, just with the aim of making them displayable on an
-;; ASCII or Latin-1 tty.  If nothing else it might give you ideas for
-;; display table mangling of your own.
+;; unicode encountered, with the aim of making them displayable on an ASCII
+;; or Latin-1 tty.  If nothing else it might give you ideas for display
+;; table mangling of your own.
 ;;
 ;; See latin1-disp.el for similar display table setups for otherwise
-;; undisplayable characters from the iso-8859-N charsets, and some cyrillic.
+;; undisplayable characters from the iso-8859-N charsets and some cyrillic.
 ;;
-;; Quite to transform and how prominent it should be is a matter of personal
-;; preference.  Displaying a char as a sequence like "->" can make text
-;; lines come out too long, or tables etc not align, sometimes very badly.
-;; A face like `escape-glyph' can make it clear you're looking at non-ascii,
-;; except it becomes distracting if the screen is littered with it.
+;; Quite what to transform and how prominent it should be is a matter of
+;; personal preference.  Displaying a char as a sequence like "->" can make
+;; text lines come out too long, or tables etc not align, sometimes very
+;; badly.  A face like `escape-glyph' can make it clear you're looking at
+;; non-ascii, except it becomes distracting if the screen is littered with
+;; it.
 ;;
 ;; The variant hyphens and quotes currently treated by `unicode-disp' are on
-;; the whole fairly pointless and might as well display as plain ascii "-"
-;; etc as necessary, with no special highlighting.
+;; the whole fairly pointless and are displayed as plain ascii "-" etc as
+;; necessary, with no special highlighting.
 
 ;;; Emacsen:
 
@@ -69,16 +70,24 @@
 ;; Version 5 - some more chars
 ;; Version 6 - mathematical <> bracket chars
 ;; Version 7 - en dash
+;; Version 8 - quieten xemacs byte compile a little
+;; Version 9 - bullet, <= and >=
+;; Version 10 - oops, need unicode-disp--with-selected-frame in defadvice
 
 ;;; Code:
 
-;; for `ad-find-advice' macro when running uncompiled
-;; (don't unload 'advice before our -unload-function)
+;; Explicit dependency on advice.el since `unicode-disp-unload-function'
+;; needs `ad-find-advice' macro when running not byte compiled, and that
+;; macro is not autoloaded.
 (require 'advice)
 
+;; quieten xemacs byte compile (though `unicode-disp' does nothing in xemacs
+;; as yet)
+(defvar standard-display-table)
+(defvar buffer-display-table)
 
 ;;-----------------------------------------------------------------------------
-;; emacs22 new stuff
+;; compatibility -- emacs22 new stuff
 
 ;; unicode-disp--char-displayable-p
 (eval-and-compile
@@ -86,7 +95,8 @@
       ;; emacs22 up
       (defalias 'unicode-disp--char-displayable-p 'char-displayable-p)
     ;; emacs21
-    (put  'unicode-disp--char-displayable-p 'side-effect-free t)
+    (eval-when-compile
+      (put 'unicode-disp--char-displayable-p 'side-effect-free t))
     (defun unicode-disp--char-displayable-p (window)
       "Return non-nil if CHAR can be shown on the current display.
 It's assumed everything is displayable on X and on a utf8 tty
@@ -100,25 +110,30 @@ It's assumed everything is displayable on X and on a utf8 tty
       ;; emacs22 up
       (defalias 'unicode-disp--make-glyph-code 'make-glyph-code)
     ;; emacs21
-    (put  'unicode-disp--make-glyph-code 'side-effect-free t)
+    (eval-when-compile
+      (put 'unicode-disp--make-glyph-code 'side-effect-free t))
     (defun unicode-disp--make-glyph-code (c &optional face)
       "Return a glyph code for CHAR displayed with FACE."
       (logior c (* 524288
                    (if face (face-id face) 0))))))
 
 ;;-----------------------------------------------------------------------------
-;; emacs23 new stuff
+;; compatibility -- emacs23 new stuff
 
 ;; unicode-disp--with-selected-frame
 (eval-and-compile
-  (if (eval-when-compile (fboundp 'with-selected-frame))
-      ;; emacs23 up, and xemacs21
-      (defalias 'unicode-disp--with-selected-frame 'with-selected-frame)
-    ;; emacs21,emacs22
-    ;; the NO-ENTER parameter in emacs21 gone in emacs22
-    (defmacro unicode-disp--with-selected-frame (frame &rest body)
-      "Evaluate BODY with FRAME as the `selected-frame'."
-      ;; (declare (debug t))  ;; emacs22,xemacs21, or 'cl
+  (defmacro unicode-disp--with-selected-frame (frame &rest body)
+    "Evaluate BODY with FRAME as the `selected-frame'.
+This is an internal part of unicode-disp.el and doesn't exist
+when running byte compiled."
+    ;; (declare (debug t))  ;; emacs22,xemacs21, or 'cl
+
+    (if (eval-when-compile (fboundp 'with-selected-frame))
+        ;; emacs23 up, and xemacs21
+        `(with-selected-frame ,frame ,@body)
+
+      ;; emacs21,emacs22
+      ;; the NO-ENTER parameter in emacs21 is gone in emacs22
       `(let ((unicode-disp--with-selected-frame--old (selected-frame)))
          (unwind-protect
              (progn
@@ -147,8 +162,8 @@ DISPLAY is a display name, a frame, or nil for the selected frame."
          (assq attr custom-face-attributes))))
 
 (defun unicode-disp-overline-face (&optional display)
-  "Return an overline face for DISPLAY, or nil.
-If the display can't show an overline face the return is nil.
+  "Return an overline face (a symbol) for DISPLAY, or nil.
+If the display can't show an overline face then return nil.
 DISPLAY is a display name, a frame, or nil for the selected frame."
   (when (unicode-disp-attr-displayable-p :overline display)
     (unless (facep 'unicode-disp-overline)
@@ -200,6 +215,12 @@ DISPLAY is a display name, a frame, or nil for the selected frame."
     (#x27E8 "<")  ;; MATHEMATICAL LEFT ANGLE BRACKET
     (#x27E9 ">")  ;; MATHEMATICAL RIGHT ANGLE BRACKET
 
+    (#x2022 "*")  ;; BULLET
+    (#x2264 "<="  ;; LESS-THAN OR EQUAL TO
+            unicode-disp-escape-face)
+    (#x2265 ">="  ;; GREATER-THAN OR EQUAL TO
+            unicode-disp-escape-face)
+
     (#x203E " "   ;; OVERLINE as face
             unicode-disp-overline-face)))
 
@@ -242,7 +263,7 @@ which characters are displayable."
   ;; so this advice is left behind, allow for that by checking
   ;; 'unicode-disp-table' still exists
   (when (fboundp 'unicode-disp-table)
-    (let ((table (ad-get-arg 1))) ;; args WINDOW TABLE
+    (let ((table (ad-get-arg 1))) ;; args: WINDOW TABLE
       (and table
            (unicode-disp--with-selected-frame (window-frame window)
                                               (unicode-disp-table table))))))
@@ -282,7 +303,7 @@ ascii near-equivalents if not otherwise displayable.  For example
 if U+2010 HYPHEN isn't displayable then it's set to plain ascii
 \"-\".
 
-This only affects the screen display, the characters in the
+This only affects the screen display.  The characters in the
 buffers are unchanged.
 
 `standard-display-table' and current and future
@@ -322,7 +343,8 @@ URL `http://user42.tuxfamily.org/unicode-disp/index.html'"
 ;; ;;;###autoload
 ;; (custom-add-option 'term-setup-hook 'unicode-disp)
 
-;; LocalWords: latin overline fallbacks unicode tty disp ascii undisplayable charsets cyrillic iso
+;; LocalWords: latin overline fallbacks unicode tty disp ascii undisplayable
+;; LocalWords: charsets cyrillic iso el
 
 (provide 'unicode-disp)
 
