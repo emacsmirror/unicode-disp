@@ -1,9 +1,9 @@
 ;;; unicode-disp.el --- display-table fallbacks for some unicode chars
 
-;; Copyright 2008, 2009, 2010, 2011, 2012, 2013 Kevin Ryde
+;; Copyright 2008, 2009, 2010, 2011, 2012, 2013, 2015 Kevin Ryde
 ;;
-;; Author: Kevin Ryde <user42@zip.com.au>
-;; Version: 10
+;; Author: Kevin Ryde <user42_kevin@yahoo.com.au>
+;; Version: 11
 ;; Keywords: i18n, unicode, display
 ;; URL: http://user42.tuxfamily.org/unicode-disp/index.html
 ;;
@@ -23,7 +23,7 @@
 
 ;;; Commentary:
 
-;; M-x unicode-disp changes the display table to show otherwise
+;; M-x unicode-disp changes the display table to show a few otherwise
 ;; undisplayable unicode chars as ASCII equivalents or near equivalents.
 ;;
 ;; The characters handled are a personal selection of the worst bits of
@@ -35,19 +35,27 @@
 ;; undisplayable characters from the iso-8859-N charsets and some cyrillic.
 ;;
 ;; Quite what to transform and how prominent it should be is a matter of
-;; personal preference.  Displaying a char as a sequence like "->" can make
-;; text lines come out too long, or tables etc not align, sometimes very
-;; badly.  A face like `escape-glyph' can make it clear you're looking at
-;; non-ascii, except it becomes distracting if the screen is littered with
-;; it.
+;; personal preference.  Displaying an arrow char as a sequence like "->"
+;; can make text lines come out too long, or tables etc not align, sometimes
+;; very badly.  A face like `escape-glyph' can make it clear you're looking
+;; at non-ascii, except it becomes distracting if the screen is littered
+;; with it.
 ;;
-;; The variant hyphens and quotes currently treated by `unicode-disp' are on
-;; the whole fairly pointless and are displayed as plain ascii "-" etc as
-;; necessary, with no special highlighting.
+;; The variant unicode hyphens and quotes currently treated by
+;; `unicode-disp' are on the whole pointless and are better displayed as
+;; plain ascii "-" etc where necessary, with no special highlighting.
 
 ;;; Emacsen:
 
 ;; Designed for Emacs 21 and up, does nothing in XEmacs 21.
+
+;;; Bugs:
+
+;; unicode-disp.el might or might not work with other display table mangling
+;; packages.  Some packages which change the display table have their own
+;; ideas on things like saving an existing table etc.  Anything which just
+;; makes desired changes should work, but if trying to be cleverer then
+;; maybe not.
 
 ;;; Install:
 
@@ -73,6 +81,7 @@
 ;; Version 8 - quieten xemacs byte compile a little
 ;; Version 9 - bullet, <= and >=
 ;; Version 10 - oops, need unicode-disp--with-selected-frame in defadvice
+;; Version 11 - new email
 
 ;;; Code:
 
@@ -123,9 +132,9 @@ It's assumed everything is displayable on X and on a utf8 tty
 ;; unicode-disp--with-selected-frame
 (eval-and-compile
   (defmacro unicode-disp--with-selected-frame (frame &rest body)
-    "Evaluate BODY with FRAME as the `selected-frame'.
-This is an internal part of unicode-disp.el and doesn't exist
-when running byte compiled."
+    "An internal part of unicode-disp.el.
+This macro does not exist when running byte compiled.
+Evaluate BODY with FRAME as the `selected-frame'."
     ;; (declare (debug t))  ;; emacs22,xemacs21, or 'cl
 
     (if (eval-when-compile (fboundp 'with-selected-frame))
