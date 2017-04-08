@@ -1,9 +1,9 @@
 ;;; unicode-disp.el --- display-table fallbacks for some unicode chars
 
-;; Copyright 2008, 2009, 2010, 2011, 2012, 2013, 2015 Kevin Ryde
+;; Copyright 2008, 2009, 2010, 2011, 2012, 2013, 2015, 2017 Kevin Ryde
 ;;
 ;; Author: Kevin Ryde <user42_kevin@yahoo.com.au>
-;; Version: 11
+;; Version: 12
 ;; Keywords: i18n, unicode, display
 ;; URL: http://user42.tuxfamily.org/unicode-disp/index.html
 ;;
@@ -82,6 +82,7 @@
 ;; Version 9 - bullet, <= and >=
 ;; Version 10 - oops, need unicode-disp--with-selected-frame in defadvice
 ;; Version 11 - new email
+;; Version 12 - char-displayable-p on emacs25 tty
 
 ;;; Code:
 
@@ -96,22 +97,35 @@
 (defvar buffer-display-table)
 
 ;;-----------------------------------------------------------------------------
-;; compatibility -- emacs22 new stuff
+;; compatibility -- various
 
-;; unicode-disp--char-displayable-p
-(eval-and-compile
-  (if (eval-when-compile (fboundp 'char-displayable-p))
-      ;; emacs22 up
-      (defalias 'unicode-disp--char-displayable-p 'char-displayable-p)
-    ;; emacs21
-    (eval-when-compile
-      (put 'unicode-disp--char-displayable-p 'side-effect-free t))
-    (defun unicode-disp--char-displayable-p (window)
-      "Return non-nil if CHAR can be shown on the current display.
-It's assumed everything is displayable on X and on a utf8 tty
-\(if `terminal-coding-system' is utf-8)."
-      (or window-system
-          (eq 'utf-8 (terminal-coding-system))))))
+(defun unicode-disp--char-displayable-p (char)
+  "An internal part of unicode-disp.el.
+Return non-nil if CHAR can be shown on the current display.
+
+This is `char-displayable-p' except there's something fishy in
+Emacs 25 which means it thinks unicode chars are displayable even
+when `terminal-coding-system' is say `iso-latin-1-unix'.  As a
+workaround, on a tty demand also that CHAR is encodable in
+`terminal-coding-system'.
+
+In Emacs 21 there is no `char-displayable-p' so there it's
+assumed (slightly rashly) that everything is displayable on a
+window system, and `terminal-coding-system' on a tty."
+
+  (if (and (eval-when-compile (fboundp 'char-displayable-p)) ;; emacs22 up
+           window-system)
+      (char-displayable-p char) ;; window system
+
+    ;; assumed everything is displayable on X and on a utf8 tty,
+    ;; otherwise check for encodability in terminal-coding-system
+    (or window-system
+        (eq 'utf-8 (terminal-coding-system))
+        (equal char ? )
+        (not (equal " " (encode-coding-string (char-to-string char)
+                                              (terminal-coding-system)))))))
+(eval-when-compile
+  (put 'unicode-disp--char-displayable-p 'side-effect-free t))
 
 ;; unicode-disp--make-glyph-code
 (eval-and-compile
@@ -212,6 +226,10 @@ DISPLAY is a display name, a frame, or nil for the selected frame."
     (#x2190 "<-"  ;; LEFTWARDS ARROW
             unicode-disp-escape-face)
     (#x2192 "->"  ;; RIGHTWARDS ARROW
+            unicode-disp-escape-face)
+    (#x21D0 "<="  ;; LEFTWARDS ARROW
+            unicode-disp-escape-face)
+    (#x21D2 "=>"  ;; RIGHTWARDS DOUBLE ARROW
             unicode-disp-escape-face)
     (#x221E "inf" ;; INFINITY
             unicode-disp-escape-face)
