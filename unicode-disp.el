@@ -1,9 +1,9 @@
 ;;; unicode-disp.el --- display-table fallbacks for some unicode chars
 
-;; Copyright 2008, 2009, 2010, 2011, 2012, 2013, 2015, 2017 Kevin Ryde
+;; Copyright 2008, 2009, 2010, 2011, 2012, 2013, 2015, 2017, 2019 Kevin Ryde
 ;;
 ;; Author: Kevin Ryde <user42_kevin@yahoo.com.au>
-;; Version: 12
+;; Version: 13
 ;; Keywords: i18n, unicode, display
 ;; URL: http://user42.tuxfamily.org/unicode-disp/index.html
 ;;
@@ -83,6 +83,7 @@
 ;; Version 10 - oops, need unicode-disp--with-selected-frame in defadvice
 ;; Version 11 - new email
 ;; Version 12 - char-displayable-p on emacs25 tty
+;; Version 13 - docstrings of what is meant for interal-use
 
 ;;; Code:
 
@@ -103,11 +104,12 @@
   "An internal part of unicode-disp.el.
 Return non-nil if CHAR can be shown on the current display.
 
-This is `char-displayable-p' except there's something fishy in
-Emacs 25 which means it thinks unicode chars are displayable even
-when `terminal-coding-system' is say `iso-latin-1-unix'.  As a
-workaround, on a tty demand also that CHAR is encodable in
-`terminal-coding-system'.
+This is `char-displayable-p' except there was a bug in Emacs 25.1
+on the Linux console which meant it reckoned various unicode
+chars displayable even when `terminal-coding-system' said
+`iso-latin-1-unix'.  This affects all uses of `char-displayable-p'
+but is rather fundamental here so as a workaround on a tty demand
+also that CHAR is encodable in `terminal-coding-system'.
 
 In Emacs 21 there is no `char-displayable-p' so there it's
 assumed (slightly rashly) that everything is displayable on a
@@ -136,7 +138,8 @@ window system, and `terminal-coding-system' on a tty."
     (eval-when-compile
       (put 'unicode-disp--make-glyph-code 'side-effect-free t))
     (defun unicode-disp--make-glyph-code (c &optional face)
-      "Return a glyph code for CHAR displayed with FACE."
+      "An internal part of unicode-disp.el.
+Return a glyph code for CHAR displayed with FACE."
       (logior c (* 524288
                    (if face (face-id face) 0))))))
 
@@ -168,7 +171,8 @@ Evaluate BODY with FRAME as the `selected-frame'."
 ;;-----------------------------------------------------------------------------
 
 (defun unicode-disp-attr-displayable-p (attr &optional display)
-  "Return non-nil if ATTR can be shown on DISPLAY.
+  "An internal part of unicode-disp.el.
+Return non-nil if ATTR can be shown on DISPLAY.
 ATTR is a keyword like :overline.
 DISPLAY is a display name, a frame, or nil for the selected frame."
   (cond ((eval-when-compile (fboundp 'display-supports-face-attributes-p))
@@ -185,7 +189,8 @@ DISPLAY is a display name, a frame, or nil for the selected frame."
          (assq attr custom-face-attributes))))
 
 (defun unicode-disp-overline-face (&optional display)
-  "Return an overline face (a symbol) for DISPLAY, or nil.
+  "An internal part of unicode-disp.el.
+Return an overline face (a symbol) for DISPLAY, or nil.
 If the display can't show an overline face then return nil.
 DISPLAY is a display name, a frame, or nil for the selected frame."
   (when (unicode-disp-attr-displayable-p :overline display)
@@ -196,7 +201,8 @@ DISPLAY is a display name, a frame, or nil for the selected frame."
 
 ;; is `facep' side-effect-free ?
 (defun unicode-disp-escape-face ()
-  "Return 'escape-glyph if that face exists, otherwise 'default.
+  "An internal part of unicode-disp.el.
+Return 'escape-glyph if that face exists, otherwise 'default.
 DISPLAY is a display name, a frame, or nil for the selected frame."
   (if (facep 'escape-glyph) ;; not in emacs21,xemacs21
       'escape-glyph
@@ -252,7 +258,8 @@ DISPLAY is a display name, a frame, or nil for the selected frame."
             unicode-disp-overline-face)))
 
 (defun unicode-disp-table (table)
-  "Apply unicode display to TABLE.
+  "An internal part of unicode-disp.el.
+Apply unicode display to TABLE.
 TABLE is a display table, or nil to act on as-yet uninitialized
 `standard-display-table'.  The `selected-frame' is used to check
 which characters are displayable."
@@ -309,7 +316,8 @@ This is called by `unload-feature'."
 ;; plain setq to buffer-display-table anyway
 ;;
 (defun unicode-disp-winconf ()
-  "Apply `unicode-disp' character fallbacks to `buffer-display-table'.
+  "An internal part of unicode-disp.el.
+Apply `unicode-disp' character fallbacks to `buffer-display-table'.
 This function is used in `window-configuration-change-hook' to
 check any buffer display tables in the displayed buffers."
   ;; in emacs21 `unload-feature' doesn't remove `unicode-disp-winconf' from
